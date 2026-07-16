@@ -1,6 +1,7 @@
 import argparse
 import json
 import math
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -315,6 +316,7 @@ def create_visualization(
     prompt_length_unit,
     output_path,
     bins,
+    dataset_title,
     generation_metadata=None,
 ):
     try:
@@ -329,6 +331,7 @@ def create_visualization(
         ) from error
 
     figure, axes = plt.subplots(2, 2, figsize=(14, 10), constrained_layout=True)
+    figure.suptitle(dataset_title, fontsize=20)
 
     add_distribution_plot(
         axes[0, 0],
@@ -448,6 +451,7 @@ def visualize_dataset(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     dataset_name = dataset_path.stem
+    dataset_title = datetime.now().strftime("Dataset-%y%m%d-%H%M")
     chart_path = output_dir / f"{dataset_name}_distribution.png"
     summary_path = output_dir / f"{dataset_name}_summary.json"
 
@@ -457,6 +461,7 @@ def visualize_dataset(
         prompt_length_unit,
         chart_path,
         bins,
+        dataset_title,
         generation_metadata=generation_metadata,
     )
 
@@ -467,6 +472,7 @@ def visualize_dataset(
     )
     summary = {
         "dataset": str(dataset_path),
+        "title": dataset_title,
         "prompt_length_unit": prompt_length_unit,
         "prompt_length": calculate_statistics(prompt_lengths),
         "output_tokens": calculate_statistics(output_lengths),
