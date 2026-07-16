@@ -40,6 +40,14 @@ def parse_args():
         default=None,
         help="Histogram bin count. Defaults to a value based on dataset size.",
     )
+    parser.add_argument(
+        "--metadata",
+        type=Path,
+        help=(
+            "Generation metadata JSON path. By default, the script looks for "
+            "<dataset_stem>_metadata.json next to the dataset."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -141,6 +149,21 @@ def calculate_statistics(values):
     }
 
 
+def calculate_float_statistics(values):
+    percentiles = np.percentile(values, [50, 90, 95, 99])
+    return {
+        "count": int(values.size),
+        "min": float(values.min()),
+        "mean": float(values.mean()),
+        "std_dev": float(values.std()),
+        "p50": float(percentiles[0]),
+        "p90": float(percentiles[1]),
+        "p95": float(percentiles[2]),
+        "p99": float(percentiles[3]),
+        "max": float(values.max()),
+    }
+
+
 def default_bin_count(sample_count):
     return max(10, min(60, int(math.sqrt(sample_count))))
 
@@ -171,12 +194,128 @@ def add_distribution_plot(axis, values, title, x_label, bins, color):
     axis.legend()
 
 
+def load_generation_metadata(dataset_path, metadata_path=None):
+    if metadata_path is None:
+        metadata_path = dataset_path.with_name(
+            f"{dataset_path.stem}_metadata.json"
+        )
+    if not metadata_path.exists():
+        return None
+    return json.loads(metadata_path.read_text(encoding="utf-8"))
+
+
+def format_generation_annotation(generation_metadata):
+    if not generation_metadata:
+        return None
+
+    prompt = generation_metadata.get("prompt_distribution", {})
+    output = generation_metadata.get("output_distribution", {})
+
+    if prompt.get("type") == "lognormal_ratio":
+        prompt_formula = (
+            "Prompt ratio: R ~ LogNormal("
+            f"mu={prompt['mu']}, sigma={prompt['sigma']})"
+        )
+    elif prompt.get("type") == "normal_ratio":
+        prompt_formula = (
+            "Prompt ratio: R ~ Normal("
+            f"mu={prompt['mean']}, sigma={prompt['std_dev']})"
+        )
+    else:
+        prompt_formula = prompt.get("formula", "Prompt distribution: unknown")
+
+    prompt_details = (
+        f"R = clip(R, 0, 1); forced R=1: "
+        f"{prompt.get('num_long_prompts', 0)}/{generation_metadata.get('total_count')}"
+    )
+    if output.get("type") == "conditional_truncated_normal":
+        output_formula = (
+            "Output mean: mu_i="
+            f"{output.get('mean_min')}+"
+            f"({output.get('mean_max')}-{output.get('mean_min')})"
+            f"*(L_i/L_max)^{output.get('curve_power')}"
+        )
+        output_details = (
+            "O_i ~ TruncNormal("
+            f"mu_i, sigma={output.get('std_dev')}, "
+            f"range=[{output.get('min')}, {output.get('max')}])"
+        )
+    else:
+        output_formula = (
+            "Output: O ~ TruncNormal("
+            f"mu={output.get('mean')}, sigma={output.get('std_dev')}, "
+            f"range=[{output.get('min')}, {output.get('max')}])"
+        )
+        output_details = None
+    seed_details = (
+        f"Seeds: prompt={prompt.get('seed')}, output={output.get('seed')}"
+    )
+    annotation_lines = [prompt_formula, prompt_details, output_formula]
+    if output_details:
+        annotation_lines.append(output_details)
+    annotation_lines.append(seed_details)
+    return "\n".join(annotation_lines)
+
+
+def calculate_conditional_output_means(prompt_lengths, generation_metadata):
+    if not generation_metadata:
+        return None
+
+    output = generation_metadata.get("output_distribution", {})
+    if output.get("type") != "conditional_truncated_normal":
+        return None
+
+    max_prompt_length = prompt_lengths.max()
+    if max_prompt_length <= 0:
+        normalized_lengths = np.zeros_like(prompt_lengths, dtype=np.float64)
+    else:
+        normalized_lengths = prompt_lengths / max_prompt_length
+
+    return output["mean_min"] + (
+        output["mean_max"] - output["mean_min"]
+    ) * np.power(normalized_lengths, output["curve_power"])
+
+
+def add_qq_plot(axis, observed_values, title, x_label, y_label):
+    sorted_observed = np.sort(observed_values)
+    theoretical_quantiles = np.sort(
+        np.random.default_rng(0).normal(
+            loc=observed_values.mean(),
+            scale=observed_values.std(),
+            size=sorted_observed.size,
+        )
+    )
+    axis.scatter(
+        theoretical_quantiles,
+        sorted_observed,
+        alpha=0.55,
+        s=16,
+        color="#b279a2",
+    )
+    lower = min(theoretical_quantiles.min(), sorted_observed.min())
+    upper = max(theoretical_quantiles.max(), sorted_observed.max())
+    axis.plot(
+        [lower, upper],
+        [lower, upper],
+        color="#d62728",
+        linewidth=1.3,
+        linestyle="--",
+        label="ideal normal",
+    )
+    axis.set_title(title)
+    axis.set_xlabel(x_label)
+    axis.set_ylabel(y_label)
+    axis.grid(alpha=0.2)
+    axis.legend()
+
+
 def create_visualization(
     prompt_lengths,
     output_lengths,
     prompt_length_unit,
     output_path,
     bins,
+    generation_metadata=None,
 ):
     try:
         import matplotlib
@@ -199,6 +338,23 @@ def create_visualization(
         bins,
         "#4c78a8",
     )
+    annotation = format_generation_annotation(generation_metadata)
+    if annotation:
+        axes[0, 0].text(
+            0.02,
+            0.97,
+            annotation,
+            transform=axes[0, 0].transAxes,
+            ha="left",
+            va="top",
+            fontsize=9,
+            bbox={
+                "boxstyle": "round,pad=0.45",
+                "facecolor": "white",
+                "edgecolor": "#777777",
+                "alpha": 0.9,
+            },
+        )
     add_distribution_plot(
         axes[0, 1],
         output_lengths,
@@ -208,6 +364,10 @@ def create_visualization(
         "#f58518",
     )
 
+    conditional_means = calculate_conditional_output_means(
+        prompt_lengths,
+        generation_metadata,
+    )
     if prompt_lengths.size >= 200:
         joint_plot = axes[1, 0].hexbin(
             prompt_lengths,
@@ -229,58 +389,67 @@ def create_visualization(
     axes[1, 0].set_xlabel(f"Prompt length ({prompt_length_unit})")
     axes[1, 0].set_ylabel("Output tokens")
     axes[1, 0].grid(alpha=0.2)
-
-    sorted_outputs = np.sort(output_lengths)
-    theoretical_quantiles = np.sort(
-        np.random.default_rng(0).normal(
-            loc=output_lengths.mean(),
-            scale=output_lengths.std(),
-            size=sorted_outputs.size,
+    if conditional_means is not None:
+        curve_order = np.argsort(prompt_lengths)
+        axes[1, 0].plot(
+            prompt_lengths[curve_order],
+            conditional_means[curve_order],
+            color="#d62728",
+            linewidth=2,
+            label="conditional mean mu(L)",
         )
-    )
-    axes[1, 1].scatter(
-        theoretical_quantiles,
-        sorted_outputs,
-        alpha=0.55,
-        s=16,
-        color="#b279a2",
-    )
-    lower = min(theoretical_quantiles.min(), sorted_outputs.min())
-    upper = max(theoretical_quantiles.max(), sorted_outputs.max())
-    axes[1, 1].plot(
-        [lower, upper],
-        [lower, upper],
-        color="#d62728",
-        linewidth=1.3,
-        linestyle="--",
-        label="ideal normal",
-    )
-    axes[1, 1].set_title("Output-length normal Q-Q plot")
-    axes[1, 1].set_xlabel("Theoretical normal quantiles")
-    axes[1, 1].set_ylabel("Observed output tokens")
-    axes[1, 1].grid(alpha=0.2)
-    axes[1, 1].legend()
+        axes[1, 0].legend()
+
+    if conditional_means is not None:
+        output_std_dev = generation_metadata["output_distribution"]["std_dev"]
+        standardized_residuals = (
+            output_lengths - conditional_means
+        ) / output_std_dev
+        add_qq_plot(
+            axes[1, 1],
+            standardized_residuals,
+            "Conditional residual normal Q-Q plot",
+            "Theoretical standard-normal quantiles",
+            "Observed standardized residuals",
+        )
+    else:
+        add_qq_plot(
+            axes[1, 1],
+            output_lengths,
+            "Output-length normal Q-Q plot",
+            "Theoretical normal quantiles",
+            "Observed output tokens",
+        )
 
     figure.savefig(output_path, dpi=160)
     plt.close(figure)
 
 
-def main():
-    args = parse_args()
-    prompts, output_lengths = load_dataset(args.dataset)
+def visualize_dataset(
+    dataset_path,
+    output_dir=Path("visualization"),
+    tokenizer_path=None,
+    apply_chat_template=True,
+    trust_remote_code=False,
+    bins=None,
+    generation_metadata=None,
+):
+    dataset_path = Path(dataset_path)
+    output_dir = Path(output_dir)
+    prompts, output_lengths = load_dataset(dataset_path)
     prompt_lengths, prompt_length_unit = get_prompt_lengths(
         prompts,
-        tokenizer_path=args.tokenizer,
-        apply_chat_template=not args.skip_chat_template,
-        trust_remote_code=args.trust_remote_code,
+        tokenizer_path=tokenizer_path,
+        apply_chat_template=apply_chat_template,
+        trust_remote_code=trust_remote_code,
     )
 
-    bins = args.bins or default_bin_count(len(prompts))
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    bins = bins or default_bin_count(len(prompts))
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    dataset_name = args.dataset.stem
-    chart_path = args.output_dir / f"{dataset_name}_distribution.png"
-    summary_path = args.output_dir / f"{dataset_name}_summary.json"
+    dataset_name = dataset_path.stem
+    chart_path = output_dir / f"{dataset_name}_distribution.png"
+    summary_path = output_dir / f"{dataset_name}_summary.json"
 
     create_visualization(
         prompt_lengths,
@@ -288,6 +457,7 @@ def main():
         prompt_length_unit,
         chart_path,
         bins,
+        generation_metadata=generation_metadata,
     )
 
     correlation = (
@@ -296,12 +466,31 @@ def main():
         else None
     )
     summary = {
-        "dataset": str(args.dataset),
+        "dataset": str(dataset_path),
         "prompt_length_unit": prompt_length_unit,
         "prompt_length": calculate_statistics(prompt_lengths),
         "output_tokens": calculate_statistics(output_lengths),
         "prompt_output_correlation": correlation,
     }
+    if generation_metadata:
+        summary["generation"] = generation_metadata
+        conditional_means = calculate_conditional_output_means(
+            prompt_lengths,
+            generation_metadata,
+        )
+        if conditional_means is not None:
+            output_std_dev = generation_metadata["output_distribution"][
+                "std_dev"
+            ]
+            standardized_residuals = (
+                output_lengths - conditional_means
+            ) / output_std_dev
+            summary["conditional_output_mean"] = calculate_float_statistics(
+                conditional_means
+            )
+            summary["standardized_output_residual"] = (
+                calculate_float_statistics(standardized_residuals)
+            )
     if prompt_length_unit == "tokens":
         summary["total_sequence_length"] = calculate_statistics(
             prompt_lengths + output_lengths
@@ -317,6 +506,24 @@ def main():
         f"Samples={len(prompts)}, "
         f"prompt_mean={prompt_lengths.mean():.2f} {prompt_length_unit}, "
         f"output_mean={output_lengths.mean():.2f} tokens"
+    )
+    return chart_path, summary_path
+
+
+def main():
+    args = parse_args()
+    generation_metadata = load_generation_metadata(
+        args.dataset,
+        metadata_path=args.metadata,
+    )
+    visualize_dataset(
+        args.dataset,
+        output_dir=args.output_dir,
+        tokenizer_path=args.tokenizer,
+        apply_chat_template=not args.skip_chat_template,
+        trust_remote_code=args.trust_remote_code,
+        bins=args.bins,
+        generation_metadata=generation_metadata,
     )
 
 
