@@ -16,6 +16,7 @@ DATASET_PATH="${DATASET_PATH:-./mixed_prompts_lognormal.jsonl}"
 BENCHMARK_TZ="${BENCHMARK_TZ:-UTC-8}"
 INTERNAL_NO_PROXY_HOSTS="${INTERNAL_NO_PROXY_HOSTS:-61.28.30.29,127.0.0.1,localhost}"
 INITIAL_STARTUP_DELAY="${INITIAL_STARTUP_DELAY:-10}"
+DECODER_DRAIN_DELAY="${DECODER_DRAIN_DELAY:-30}"
 RESOURCE_RELEASE_DELAY="${RESOURCE_RELEASE_DELAY:-5}"
 READY_SETTLE_DELAY="${READY_SETTLE_DELAY:-3}"
 SKIP_INITIAL_PROCESS_CLEANUP="${SKIP_INITIAL_PROCESS_CLEANUP:-0}"
@@ -39,6 +40,7 @@ usage() {
   -n, --rounds N       每种模式执行的 benchmark 轮数，默认 10
   -m, --modes LIST     要测试的模式，逗号分隔；支持 bl、lb、dynam
   -d, --dataset-path P 数据集 JSONL 路径
+      --drain-seconds N Benchmark 完成后停止 Decoder 前的 drain 秒数，默认 30
   -h, --help           显示帮助
 
 示例:
@@ -46,8 +48,8 @@ usage() {
   ./automatic_benchmark.sh 10 bl,lb Dataset-20260717-0930.jsonl
   ./automatic_benchmark.sh --rounds 3 --modes bl,dynam --dataset-path Dataset-20260717-0930.jsonl
 
-也可以通过环境变量 NUM_ROUNDS、TEST_MODES、DATASET_PATH、BENCHMARK_TZ
-和 INTERNAL_NO_PROXY_HOSTS 配置。
+也可以通过环境变量 NUM_ROUNDS、TEST_MODES、DATASET_PATH、BENCHMARK_TZ、
+INTERNAL_NO_PROXY_HOSTS 和 DECODER_DRAIN_DELAY 配置。
 EOF
 }
 
@@ -76,6 +78,14 @@ while [ "$#" -gt 0 ]; do
                 exit 2
             }
             DATASET_PATH=$2
+            shift 2
+            ;;
+        --drain-seconds)
+            [ "$#" -ge 2 ] || {
+                echo "❌ $1 缺少参数" >&2
+                exit 2
+            }
+            DECODER_DRAIN_DELAY=$2
             shift 2
             ;;
         -h|--help)
@@ -111,6 +121,11 @@ done
 
 if ! [[ "$NUM_ROUNDS" =~ ^[1-9][0-9]*$ ]]; then
     echo "❌ 轮数必须是正整数，当前值: $NUM_ROUNDS" >&2
+    exit 2
+fi
+
+if ! [[ "$DECODER_DRAIN_DELAY" =~ ^[0-9]+$ ]]; then
+    echo "❌ Decoder drain 秒数必须是非负整数，当前值: $DECODER_DRAIN_DELAY" >&2
     exit 2
 fi
 
@@ -559,6 +574,13 @@ run_benchmark_mode() {
 
 release_decoder() {
     local mode=$1
+
+    if [ "$DECODER_DRAIN_DELAY" -gt 0 ]; then
+        set_mode_status "$mode" "Drain 等待 ${DECODER_DRAIN_DELAY}s"
+        render_dashboard
+        log_event "⏳ $(mode_label "$mode") Benchmark 已结束，保留 Decoder ${DECODER_DRAIN_DELAY}s，等待在途 KV 传输和完成通知收尾..."
+        sleep "$DECODER_DRAIN_DELAY"
+    fi
 
     set_mode_status "$mode" "释放资源"
     render_dashboard
