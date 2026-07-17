@@ -48,6 +48,7 @@ vllm serve /home/y00906461/models/Qwen3-30B-A3B-Instruct-2507  \
   "scheduler_config": {
     "nonbsp_config": {
       "enabled": false,
+      "enable_diagnostics": false,
       "mode": "static",
       "start_step": 0,
       "end_step": -1,
