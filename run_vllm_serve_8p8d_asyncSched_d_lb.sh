@@ -45,12 +45,17 @@ vllm serve /home/y00906461/models/Qwen3-30B-A3B-Instruct-2507  \
   --gpu-memory-utilization 0.8  \
   --additional-config \
   '{"enable_cpu_binding":true,
-  "NONBSP_ENABLE": 1,
-  "NONBSP_START_STEP": 0,
-  "NONBSP_END_STEP": -1,
-  "NONBSP_BUBBLE_THRESHOLD": 5.0,
-  "NONBSP_LONG_REQ_BLOCK_THRESHOLD": 700,
-  "NONBSP_DYNAMIC_MAX_STEP": 256
+  "scheduler_config": {
+    "nonbsp_config": {
+      "enabled": true,
+      "mode": "static",
+      "start_step": 0,
+      "end_step": -1,
+      "bubble_threshold": 5.0,
+      "long_req_block_threshold": 700,
+      "dynamic_max_step": 256
+    }
+  }
   }' \
   --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY", "max_cudagraph_capture_size": 20, "cudagraph_capture_sizes": [1, 2, 4, 8, 16, 20]}' \
   --kv-transfer-config \

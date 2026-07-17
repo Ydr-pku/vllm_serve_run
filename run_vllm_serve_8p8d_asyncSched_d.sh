@@ -24,6 +24,9 @@ export MC_LOG_LEVEL=ERROR
 export GLOG_minloglevel=1
 export VLLM_LOGGING_LEVEL=WARNING
 export VLLM_ASCEND_FUSION_OP_TRANSPOSE_KV_CACHE_BY_BLOCK=0
+LOG_FILE="./log/${TIMESTAMP}_vllm_8rank_asyncSched_dataset11_lb.log"
+
+echo "🚀 正在启动 vLLM 服务，日志将同步保存至: ${LOG_FILE}"
 
 vllm serve /home/y00906461/models/Qwen3-30B-A3B-Instruct-2507  \
   --host 61.28.30.29 \
@@ -47,10 +50,10 @@ vllm serve /home/y00906461/models/Qwen3-30B-A3B-Instruct-2507  \
   '{"enable_cpu_binding":true,
   "scheduler_config": {
     "nonbsp_config": {
-      "enabled": false,
+      "enabled": true,
       "mode": "static",
-      "start_step": 0,
-      "end_step": -1,
+      "start_step": 500,
+      "end_step": 2000,
       "bubble_threshold": 5.0,
       "long_req_block_threshold": 700,
       "dynamic_max_step": 256
@@ -73,4 +76,5 @@ vllm serve /home/y00906461/models/Qwen3-30B-A3B-Instruct-2507  \
                     "tp_size": 1
              }
       }
-  }'
+  }' \
+  2>&1 | tee "${LOG_FILE}"
