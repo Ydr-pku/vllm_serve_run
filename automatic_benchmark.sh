@@ -12,6 +12,7 @@ BENCHMARK_SCRIPT="${BENCHMARK_SCRIPT:-./run_test_proxy_benchmark_manualPrompts_m
 
 NUM_ROUNDS="${NUM_ROUNDS:-10}"
 TEST_MODES="${TEST_MODES:-bl,lb,dynam}"
+DATASET_PATH="${DATASET_PATH:-./mixed_prompts_lognormal.jsonl}"
 INITIAL_STARTUP_DELAY="${INITIAL_STARTUP_DELAY:-10}"
 RESOURCE_RELEASE_DELAY="${RESOURCE_RELEASE_DELAY:-5}"
 READY_SETTLE_DELAY="${READY_SETTLE_DELAY:-3}"
@@ -25,20 +26,21 @@ READY_STR_DECODER="${READY_STR_DECODER:-Application startup complete}"
 usage() {
     cat <<'EOF'
 用法:
-  ./automatic_benchmark.sh [轮数] [模式列表]
-  ./automatic_benchmark.sh --rounds 10 --modes bl,lb,dynam
+  ./automatic_benchmark.sh [轮数] [模式列表] [数据集路径]
+  ./automatic_benchmark.sh --rounds 10 --modes bl,lb,dynam --dataset-path Dataset-20260717-0930.jsonl
 
 选项:
   -n, --rounds N       每种模式执行的 benchmark 轮数，默认 10
   -m, --modes LIST     要测试的模式，逗号分隔；支持 bl、lb、dynam
+  -d, --dataset-path P 数据集 JSONL 路径
   -h, --help           显示帮助
 
 示例:
   ./automatic_benchmark.sh 5
-  ./automatic_benchmark.sh 10 bl,lb
-  ./automatic_benchmark.sh --rounds 3 --modes bl,dynam
+  ./automatic_benchmark.sh 10 bl,lb Dataset-20260717-0930.jsonl
+  ./automatic_benchmark.sh --rounds 3 --modes bl,dynam --dataset-path Dataset-20260717-0930.jsonl
 
-也可以通过环境变量 NUM_ROUNDS 和 TEST_MODES 配置。
+也可以通过环境变量 NUM_ROUNDS、TEST_MODES 和 DATASET_PATH 配置。
 EOF
 }
 
@@ -61,6 +63,14 @@ while [ "$#" -gt 0 ]; do
             TEST_MODES=$2
             shift 2
             ;;
+        -d|--dataset-path)
+            [ "$#" -ge 2 ] || {
+                echo "❌ $1 缺少参数" >&2
+                exit 2
+            }
+            DATASET_PATH=$2
+            shift 2
+            ;;
         -h|--help)
             usage
             exit 0
@@ -79,6 +89,8 @@ while [ "$#" -gt 0 ]; do
                 NUM_ROUNDS=$1
             elif [ "$POSITIONAL_INDEX" -eq 1 ]; then
                 TEST_MODES=$1
+            elif [ "$POSITIONAL_INDEX" -eq 2 ]; then
+                DATASET_PATH=$1
             else
                 echo "❌ 多余参数: $1" >&2
                 usage >&2
@@ -118,6 +130,11 @@ done
 
 if [ "${#MODES[@]}" -eq 0 ]; then
     echo "❌ 至少需要选择一种测试模式" >&2
+    exit 2
+fi
+
+if [ ! -f "$DATASET_PATH" ]; then
+    echo "❌ 数据集文件不存在: $DATASET_PATH" >&2
     exit 2
 fi
 
@@ -500,7 +517,8 @@ run_benchmark_mode() {
     render_dashboard
     log_event "🚀 开始运行 $(mode_label "$mode") Benchmark，共 ${NUM_ROUNDS} 轮。"
 
-    BENCHMARK_PROGRESS_FILE="$progress_file" \
+    DATASET_PATH="$DATASET_PATH" \
+        BENCHMARK_PROGRESS_FILE="$progress_file" \
         bash "$BENCHMARK_SCRIPT" "$mode" "$NUM_ROUNDS" \
         > "$result_file" 2>&1 &
     BENCHMARK_PID=$!

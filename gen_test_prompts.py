@@ -1,6 +1,29 @@
+import argparse
 import json
 import numpy as np
+from datetime import datetime
 from pathlib import Path
+
+
+def default_dataset_path():
+    dataset_name = datetime.now().strftime("Dataset-%Y%m%d-%H%M")
+    return Path(f"{dataset_name}.jsonl")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Generate the mixed prompt dataset and its visualization."
+    )
+    parser.add_argument(
+        "--dataset-path",
+        type=Path,
+        default=None,
+        help=(
+            "Output JSONL path. Defaults to "
+            "Dataset-YYYYMMDD-HHMM.jsonl."
+        ),
+    )
+    return parser.parse_args()
 
 
 def save_dataset_artifacts(
@@ -12,6 +35,7 @@ def save_dataset_artifacts(
     tokenizer_path=None,
 ):
     dataset_path = Path(file_path)
+    dataset_path.parent.mkdir(parents=True, exist_ok=True)
     with dataset_path.open("w", encoding="utf-8") as dataset_file:
         for prompt in prompts:
             dataset_file.write(
@@ -401,7 +425,10 @@ def gen_prompts(
         
     return result_prompts
 
-if __name__ == "__main__":
+def main():
+    args = parse_args()
+    dataset_path = args.dataset_path or default_dataset_path()
+
     # ==========================
     # 正态分布策略
     # ==========================
@@ -422,7 +449,7 @@ if __name__ == "__main__":
     tokenizer_path = None  # 建议在服务器上填写实际模型或 tokenizer 路径
     
     artifacts = generate_mixed_dataset_lognormal(
-        "mixed_prompts_lognormal.jsonl",
+        dataset_path,
         tot_num,
         mu,
         sigma,
@@ -440,7 +467,7 @@ if __name__ == "__main__":
         tokenizer_path=tokenizer_path,
     )
     print(
-        "✅ 对数正态数据集生成完毕：mixed_prompts_lognormal.jsonl"
+        f"✅ 对数正态数据集生成完毕：{dataset_path}"
         f" | tot_num={tot_num}, mu={mu}, sigma={sigma}, num_long={num_long}"
         " | output_mu="
         f"{output_mean_min}+({output_mean_max}-{output_mean_min})"
@@ -450,3 +477,7 @@ if __name__ == "__main__":
     )
     for artifact_name, artifact_path in artifacts.items():
         print(f"  {artifact_name}: {artifact_path}")
+
+
+if __name__ == "__main__":
+    main()

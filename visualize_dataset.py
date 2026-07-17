@@ -1,7 +1,6 @@
 import argparse
 import json
 import math
-from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -451,7 +450,7 @@ def visualize_dataset(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     dataset_name = dataset_path.stem
-    dataset_title = datetime.now().strftime("Dataset-%y%m%d-%H%M")
+    dataset_title = dataset_name
     chart_path = output_dir / f"{dataset_name}_distribution.png"
     summary_path = output_dir / f"{dataset_name}_summary.json"
 

@@ -1,13 +1,81 @@
 #!/bin/bash
 
-# 获取命令行传入的第一个参数作为 note
-NOTE=$1
-# 获取传入的第二个参数作为运行轮数，如果未传则默认执行 1 轮
-NUM_ROUNDS=${2:-1}
+NOTE="${NOTE:-}"
+NUM_ROUNDS="${NUM_ROUNDS:-1}"
+DATASET_PATH="${DATASET_PATH:-./mixed_prompts_lognormal.jsonl}"
 PROGRESS_FILE=${BENCHMARK_PROGRESS_FILE:-}
+
+usage() {
+    cat <<'EOF'
+用法:
+  ./run_test_proxy_benchmark_manualPrompts_multiRound.sh [note] [轮数] [数据集路径]
+  ./run_test_proxy_benchmark_manualPrompts_multiRound.sh --note bl --rounds 10 --dataset-path Dataset-20260717-0930.jsonl
+
+选项:
+  --note NOTE            写入结果标识的 note
+  -n, --rounds N         运行轮数，默认 1
+  -d, --dataset-path P   数据集 JSONL 路径
+  -h, --help             显示帮助
+
+也可以通过 NOTE、NUM_ROUNDS 和 DATASET_PATH 环境变量配置。
+EOF
+}
+
+POSITIONAL_INDEX=0
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --note)
+            [ "$#" -ge 2 ] || { echo "❌ $1 缺少参数" >&2; exit 2; }
+            NOTE=$2
+            shift 2
+            ;;
+        -n|--rounds)
+            [ "$#" -ge 2 ] || { echo "❌ $1 缺少参数" >&2; exit 2; }
+            NUM_ROUNDS=$2
+            shift 2
+            ;;
+        -d|--dataset-path)
+            [ "$#" -ge 2 ] || { echo "❌ $1 缺少参数" >&2; exit 2; }
+            DATASET_PATH=$2
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            echo "❌ 未知选项: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+        *)
+            case "$POSITIONAL_INDEX" in
+                0) NOTE=$1 ;;
+                1) NUM_ROUNDS=$1 ;;
+                2) DATASET_PATH=$1 ;;
+                *)
+                    echo "❌ 多余参数: $1" >&2
+                    usage >&2
+                    exit 2
+                    ;;
+            esac
+            POSITIONAL_INDEX=$((POSITIONAL_INDEX + 1))
+            shift
+            ;;
+    esac
+done
 
 if ! [[ "$NUM_ROUNDS" =~ ^[1-9][0-9]*$ ]]; then
     echo "❌ 运行轮数必须是正整数，当前值: $NUM_ROUNDS" >&2
+    exit 2
+fi
+
+if [ ! -f "$DATASET_PATH" ]; then
+    echo "❌ 数据集文件不存在: $DATASET_PATH" >&2
     exit 2
 fi
 
@@ -30,6 +98,7 @@ LOG_DIR="./log"
 mkdir -p "${LOG_DIR}"
 
 echo "🚀 计划连续执行 ${NUM_ROUNDS} 轮压测..."
+echo "📄 数据集: ${DATASET_PATH}"
 
 # 外层循环控制多轮执行
 for (( i=1; i<=NUM_ROUNDS; i++ )); do
@@ -56,7 +125,7 @@ for (( i=1; i<=NUM_ROUNDS; i++ )); do
         --port 8080 \
         --endpoint /v1/chat/completions \
         --dataset-name custom \
-        --dataset-path ./mixed_prompts_lognormal.jsonl \
+        --dataset-path "$DATASET_PATH" \
         --custom-output-len -1 \
         --max-concurrency 128 \
         --num-prompts 1000 \
