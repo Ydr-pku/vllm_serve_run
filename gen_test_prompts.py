@@ -1,12 +1,17 @@
 import argparse
 import json
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
+CHINA_STANDARD_TIME = timezone(timedelta(hours=8))
+
+
 def default_dataset_path():
-    dataset_name = datetime.now().strftime("Dataset-%Y%m%d-%H%M")
+    dataset_name = datetime.now(CHINA_STANDARD_TIME).strftime(
+        "Dataset-%Y%m%d-%H%M"
+    )
     return Path(f"{dataset_name}.jsonl")
 
 
