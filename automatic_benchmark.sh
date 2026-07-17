@@ -13,6 +13,7 @@ BENCHMARK_SCRIPT="${BENCHMARK_SCRIPT:-./run_test_proxy_benchmark_manualPrompts_m
 NUM_ROUNDS="${NUM_ROUNDS:-10}"
 TEST_MODES="${TEST_MODES:-bl,lb,dynam}"
 DATASET_PATH="${DATASET_PATH:-./mixed_prompts_lognormal.jsonl}"
+BENCHMARK_TZ="${BENCHMARK_TZ:-UTC-8}"
 INITIAL_STARTUP_DELAY="${INITIAL_STARTUP_DELAY:-10}"
 RESOURCE_RELEASE_DELAY="${RESOURCE_RELEASE_DELAY:-5}"
 READY_SETTLE_DELAY="${READY_SETTLE_DELAY:-3}"
@@ -21,6 +22,7 @@ SKIP_INITIAL_PROCESS_CLEANUP="${SKIP_INITIAL_PROCESS_CLEANUP:-0}"
 LOG_DIR="${LOG_DIR:-./log}"
 READY_STR_PREFILLER="${READY_STR_PREFILLER:-Application startup complete}"
 READY_STR_DECODER="${READY_STR_DECODER:-Application startup complete}"
+export TZ="$BENCHMARK_TZ"
 # ==========================================
 
 usage() {
@@ -40,7 +42,7 @@ usage() {
   ./automatic_benchmark.sh 10 bl,lb Dataset-20260717-0930.jsonl
   ./automatic_benchmark.sh --rounds 3 --modes bl,dynam --dataset-path Dataset-20260717-0930.jsonl
 
-也可以通过环境变量 NUM_ROUNDS、TEST_MODES 和 DATASET_PATH 配置。
+也可以通过环境变量 NUM_ROUNDS、TEST_MODES、DATASET_PATH 和 BENCHMARK_TZ 配置。
 EOF
 }
 
@@ -139,7 +141,7 @@ if [ ! -f "$DATASET_PATH" ]; then
 fi
 
 mkdir -p "$LOG_DIR"
-RUN_TIMESTAMP=$(TZ='Asia/Shanghai' date +'%Y%m%d_%H%M')
+RUN_TIMESTAMP=$(date +'%Y%m%d_%H%M')
 SCRIPT_START_EPOCH=$(date +%s)
 
 PROGRESS_BL=0
@@ -276,10 +278,10 @@ format_duration() {
 
 format_epoch() {
     local epoch=$1
-    if TZ='Asia/Shanghai' date -d "@$epoch" +'%Y-%m-%d %H:%M:%S' >/dev/null 2>&1; then
-        TZ='Asia/Shanghai' date -d "@$epoch" +'%Y-%m-%d %H:%M:%S'
+    if date -d "@$epoch" +'%Y-%m-%d %H:%M:%S' >/dev/null 2>&1; then
+        date -d "@$epoch" +'%Y-%m-%d %H:%M:%S'
     else
-        TZ='Asia/Shanghai' date -r "$epoch" +'%Y-%m-%d %H:%M:%S'
+        date -r "$epoch" +'%Y-%m-%d %H:%M:%S'
     fi
 }
 
@@ -377,12 +379,15 @@ render_dashboard() {
     done
 
     dashboard_line "⏱️  $(eta_text)"
+    dashboard_line ""
+    dashboard_line ""
+    dashboard_line "============================================================"
     printf '\0338'
 }
 
 init_dashboard() {
     local required_lines
-    required_lines=$((${#MODES[@]} + 3))
+    required_lines=$((${#MODES[@]} + 6))
 
     if [ -t 1 ] && [ "${TERM:-dumb}" != "dumb" ] && command -v tput >/dev/null 2>&1; then
         TERM_ROWS=$(tput lines 2>/dev/null || printf '24')
@@ -412,7 +417,7 @@ stop_dashboard() {
 }
 
 log_event() {
-    printf '%s %s\n' "$(TZ='Asia/Shanghai' date +'%Y%m%d_%H%M%S')" "$*"
+    printf '%s %s\n' "$(date +'%Y%m%d_%H%M%S')" "$*"
 }
 
 cleanup() {

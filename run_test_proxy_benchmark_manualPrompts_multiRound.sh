@@ -3,7 +3,9 @@
 NOTE="${NOTE:-}"
 NUM_ROUNDS="${NUM_ROUNDS:-1}"
 DATASET_PATH="${DATASET_PATH:-./mixed_prompts_lognormal.jsonl}"
+BENCHMARK_TZ="${BENCHMARK_TZ:-UTC-8}"
 PROGRESS_FILE=${BENCHMARK_PROGRESS_FILE:-}
+export TZ="$BENCHMARK_TZ"
 
 usage() {
     cat <<'EOF'
@@ -17,7 +19,7 @@ usage() {
   -d, --dataset-path P   数据集 JSONL 路径
   -h, --help             显示帮助
 
-也可以通过 NOTE、NUM_ROUNDS 和 DATASET_PATH 环境变量配置。
+也可以通过 NOTE、NUM_ROUNDS、DATASET_PATH 和 BENCHMARK_TZ 环境变量配置。
 EOF
 }
 
@@ -106,7 +108,7 @@ for (( i=1; i<=NUM_ROUNDS; i++ )); do
     emit_progress "ROUND_START" "$i" "$ROUND_START_EPOCH"
 
     # 3. 获取当前时间戳（精确到秒，放在循环内部确保每轮时间不同）
-    TIMESTAMP=$(TZ='Asia/Shanghai' date +"%Y%m%d_%H%M")
+    TIMESTAMP=$(date +"%Y%m%d_%H%M")
 
     # 4. 定义【压测客户端】专属的日志文件名（加入 round 轮次标识）
     if [ -z "$NOTE" ]; then
