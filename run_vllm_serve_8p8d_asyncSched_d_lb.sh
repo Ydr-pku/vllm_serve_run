@@ -23,6 +23,7 @@ export TASK_QUEUE_ENABLE=1
 export MC_LOG_LEVEL=ERROR
 export GLOG_minloglevel=1
 export VLLM_LOGGING_LEVEL=WARNING
+export VLLM_ASCEND_FUSION_OP_TRANSPOSE_KV_CACHE_BY_BLOCK=0
 
 vllm serve /home/y00906461/models/Qwen3-30B-A3B-Instruct-2507  \
   --host 61.28.30.29 \
