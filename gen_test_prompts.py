@@ -446,7 +446,7 @@ def main():
     output_curve_power, output_std_dev = 0.7, 48
     output_min, output_max, output_seed = 64, 512, 42
     prompt_seed = 42
-    tokenizer_path = None  # 建议在服务器上填写实际模型或 tokenizer 路径
+    tokenizer_path = "/home/y00906461/models/Qwen3-30B-A3B-Instruct-2507"  # 建议在服务器上填写实际模型或 tokenizer 路径
     
     artifacts = generate_mixed_dataset_lognormal(
         dataset_path,
