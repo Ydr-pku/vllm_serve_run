@@ -339,9 +339,7 @@ eta_text() {
     average_seconds=$((elapsed / completed))
     remaining=$((total_rounds - completed))
     eta_epoch=$((now + average_seconds * remaining))
-    printf '预计完成时间: %s（当前平均 %s/轮）' \
-        "$(format_epoch "$eta_epoch")" \
-        "$(format_duration "$average_seconds")"
+    printf '预计完成时间: %s' "$(format_epoch "$eta_epoch")"
 }
 
 dashboard_line() {
@@ -363,6 +361,7 @@ render_dashboard() {
 
     printf '\0337\033[1;1H'
     dashboard_line "🚀 全自动化流水线测试：${modes_text}"
+    dashboard_line "📄 当前数据集: ${DATASET_PATH}"
     dashboard_line "📂 每种模式 ${NUM_ROUNDS} 轮 | 日志目录: ${LOG_DIR} | 启动时间: $(format_epoch "$SCRIPT_START_EPOCH")"
 
     for mode in "${MODES[@]}"; do
@@ -392,7 +391,7 @@ render_dashboard() {
 
 init_dashboard() {
     local required_lines
-    required_lines=$((${#MODES[@]} + 6))
+    required_lines=$((${#MODES[@]} + 7))
 
     if [ -t 1 ] && [ "${TERM:-dumb}" != "dumb" ] && command -v tput >/dev/null 2>&1; then
         TERM_ROWS=$(tput lines 2>/dev/null || printf '24')
@@ -408,6 +407,7 @@ init_dashboard() {
     fi
 
     echo "🚀 全自动化流水线测试：$(modes_display)"
+    echo "📄 当前数据集: ${DATASET_PATH}"
     echo "📂 每种模式 ${NUM_ROUNDS} 轮 | 日志目录: ${LOG_DIR} | 启动时间: $(format_epoch "$SCRIPT_START_EPOCH")"
 }
 
