@@ -14,15 +14,19 @@ NUM_ROUNDS="${NUM_ROUNDS:-10}"
 TEST_MODES="${TEST_MODES:-bl,lb,dynam}"
 DATASET_PATH="${DATASET_PATH:-./mixed_prompts_lognormal.jsonl}"
 BENCHMARK_TZ="${BENCHMARK_TZ:-UTC-8}"
+INTERNAL_NO_PROXY_HOSTS="${INTERNAL_NO_PROXY_HOSTS:-61.28.30.29,127.0.0.1,localhost}"
 INITIAL_STARTUP_DELAY="${INITIAL_STARTUP_DELAY:-10}"
 RESOURCE_RELEASE_DELAY="${RESOURCE_RELEASE_DELAY:-5}"
 READY_SETTLE_DELAY="${READY_SETTLE_DELAY:-3}"
 SKIP_INITIAL_PROCESS_CLEANUP="${SKIP_INITIAL_PROCESS_CLEANUP:-0}"
 
 LOG_DIR="${LOG_DIR:-./log}"
+READY_STR_PROXY="${READY_STR_PROXY:-Application startup complete}"
 READY_STR_PREFILLER="${READY_STR_PREFILLER:-Application startup complete}"
 READY_STR_DECODER="${READY_STR_DECODER:-Application startup complete}"
 export TZ="$BENCHMARK_TZ"
+export no_proxy="${no_proxy:+${no_proxy},}${INTERNAL_NO_PROXY_HOSTS}"
+export NO_PROXY="${NO_PROXY:+${NO_PROXY},}${INTERNAL_NO_PROXY_HOSTS}"
 # ==========================================
 
 usage() {
@@ -42,7 +46,8 @@ usage() {
   ./automatic_benchmark.sh 10 bl,lb Dataset-20260717-0930.jsonl
   ./automatic_benchmark.sh --rounds 3 --modes bl,dynam --dataset-path Dataset-20260717-0930.jsonl
 
-也可以通过环境变量 NUM_ROUNDS、TEST_MODES、DATASET_PATH 和 BENCHMARK_TZ 配置。
+也可以通过环境变量 NUM_ROUNDS、TEST_MODES、DATASET_PATH、BENCHMARK_TZ
+和 INTERNAL_NO_PROXY_HOSTS 配置。
 EOF
 }
 
@@ -580,6 +585,7 @@ fi
 log_event "▶️ 启动 Proxy Server..."
 bash "$PROXY_SCRIPT" > "${LOG_DIR}/proxy.log" 2>&1 &
 PROXY_PID=$!
+wait_for_ready "${LOG_DIR}/proxy.log" "$READY_STR_PROXY" "Proxy" "$PROXY_PID" || exit 1
 
 log_event "▶️ 启动 Prefiller..."
 bash "$PREFILLER_SCRIPT" > "${LOG_DIR}/prefiller.log" 2>&1 &
