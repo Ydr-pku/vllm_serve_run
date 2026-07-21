@@ -162,6 +162,8 @@ fi
 
 mkdir -p "$LOG_DIR"
 RUN_TIMESTAMP=$(date +'%Y%m%d_%H%M')
+DATASET_FILENAME="${DATASET_PATH##*/}"
+DATASET_NAME="${DATASET_FILENAME%.*}"
 SCRIPT_START_EPOCH=$(date +%s)
 
 PROGRESS_BL=0
@@ -213,8 +215,8 @@ mode_decoder_script() {
 }
 
 mode_result_file() {
-    printf '%s/%s_rounds%s_%s.txt' \
-        "$LOG_DIR" "$RUN_TIMESTAMP" "$NUM_ROUNDS" "$1"
+    printf '%s/%s_%s_rounds%s_%s.txt' \
+        "$LOG_DIR" "$RUN_TIMESTAMP" "$DATASET_NAME" "$NUM_ROUNDS" "$1"
 }
 
 get_mode_progress() {
