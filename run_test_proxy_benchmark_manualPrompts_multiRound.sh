@@ -2,6 +2,7 @@
 
 NOTE="${NOTE:-}"
 NUM_ROUNDS="${NUM_ROUNDS:-1}"
+NUM_PROMPTS="${NUM_PROMPTS:-1000}"
 DATASET_PATH="${DATASET_PATH:-./mixed_prompts_lognormal.jsonl}"
 BENCHMARK_TZ="${BENCHMARK_TZ:-UTC-8}"
 PROGRESS_FILE=${BENCHMARK_PROGRESS_FILE:-}
@@ -10,16 +11,17 @@ export TZ="$BENCHMARK_TZ"
 usage() {
     cat <<'EOF'
 用法:
-  ./run_test_proxy_benchmark_manualPrompts_multiRound.sh [note] [轮数] [数据集路径]
-  ./run_test_proxy_benchmark_manualPrompts_multiRound.sh --note bl --rounds 10 --dataset-path Dataset-20260717-0930.jsonl
+  ./run_test_proxy_benchmark_manualPrompts_multiRound.sh [note] [轮数] [数据集路径] [每轮请求数]
+  ./run_test_proxy_benchmark_manualPrompts_multiRound.sh --note bl --rounds 10 --num-prompts 1000 --dataset-path Dataset-20260717-0930.jsonl
 
 选项:
   --note NOTE            写入结果标识的 note
   -n, --rounds N         运行轮数，默认 1
+  -p, --num-prompts N    每轮 benchmark 的 request 数，默认 1000
   -d, --dataset-path P   数据集 JSONL 路径
   -h, --help             显示帮助
 
-也可以通过 NOTE、NUM_ROUNDS、DATASET_PATH 和 BENCHMARK_TZ 环境变量配置。
+也可以通过 NOTE、NUM_ROUNDS、NUM_PROMPTS、DATASET_PATH 和 BENCHMARK_TZ 环境变量配置。
 EOF
 }
 
@@ -34,6 +36,11 @@ while [ "$#" -gt 0 ]; do
         -n|--rounds)
             [ "$#" -ge 2 ] || { echo "❌ $1 缺少参数" >&2; exit 2; }
             NUM_ROUNDS=$2
+            shift 2
+            ;;
+        -p|--num-prompts)
+            [ "$#" -ge 2 ] || { echo "❌ $1 缺少参数" >&2; exit 2; }
+            NUM_PROMPTS=$2
             shift 2
             ;;
         -d|--dataset-path)
@@ -59,6 +66,7 @@ while [ "$#" -gt 0 ]; do
                 0) NOTE=$1 ;;
                 1) NUM_ROUNDS=$1 ;;
                 2) DATASET_PATH=$1 ;;
+                3) NUM_PROMPTS=$1 ;;
                 *)
                     echo "❌ 多余参数: $1" >&2
                     usage >&2
@@ -73,6 +81,11 @@ done
 
 if ! [[ "$NUM_ROUNDS" =~ ^[1-9][0-9]*$ ]]; then
     echo "❌ 运行轮数必须是正整数，当前值: $NUM_ROUNDS" >&2
+    exit 2
+fi
+
+if ! [[ "$NUM_PROMPTS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "❌ 每轮 request 数必须是正整数，当前值: $NUM_PROMPTS" >&2
     exit 2
 fi
 
@@ -101,6 +114,7 @@ mkdir -p "${LOG_DIR}"
 
 echo "🚀 计划连续执行 ${NUM_ROUNDS} 轮压测..."
 echo "📄 数据集: ${DATASET_PATH}"
+echo "📦 每轮请求数: ${NUM_PROMPTS}"
 
 # 外层循环控制多轮执行
 for (( i=1; i<=NUM_ROUNDS; i++ )); do
@@ -130,7 +144,7 @@ for (( i=1; i<=NUM_ROUNDS; i++ )); do
         --dataset-path "$DATASET_PATH" \
         --custom-output-len -1 \
         --max-concurrency 128 \
-        --num-prompts 1000 \
+        --num-prompts "$NUM_PROMPTS" \
         --model qwen3_30B \
         --tokenizer /home/y00906461/models/Qwen3-30B-A3B-Instruct-2507 \
         --save-result \

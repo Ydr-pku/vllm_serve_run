@@ -11,6 +11,7 @@ DECODER_SCRIPT_DYNAM="${DECODER_SCRIPT_DYNAM:-./run_vllm_serve_8p8d_asyncSched_d
 BENCHMARK_SCRIPT="${BENCHMARK_SCRIPT:-./run_test_proxy_benchmark_manualPrompts_multiRound.sh}"
 
 NUM_ROUNDS="${NUM_ROUNDS:-10}"
+NUM_PROMPTS="${NUM_PROMPTS:-1000}"
 TEST_MODES="${TEST_MODES:-bl,lb,dynam}"
 DATASET_PATH="${DATASET_PATH:-./mixed_prompts_lognormal.jsonl}"
 BENCHMARK_TZ="${BENCHMARK_TZ:-UTC-8}"
@@ -33,11 +34,12 @@ export NO_PROXY="${NO_PROXY:+${NO_PROXY},}${INTERNAL_NO_PROXY_HOSTS}"
 usage() {
     cat <<'EOF'
 用法:
-  ./automatic_benchmark.sh [轮数] [模式列表] [数据集路径]
-  ./automatic_benchmark.sh --rounds 10 --modes bl,lb,dynam --dataset-path Dataset-20260717-0930.jsonl
+  ./automatic_benchmark.sh [轮数] [模式列表] [数据集路径] [每轮请求数]
+  ./automatic_benchmark.sh --rounds 10 --num-prompts 1000 --modes bl,lb,dynam --dataset-path Dataset-20260717-0930.jsonl
 
 选项:
   -n, --rounds N       每种模式执行的 benchmark 轮数，默认 10
+  -p, --num-prompts N  每轮 benchmark 的 request 数，默认 1000
   -m, --modes LIST     要测试的模式，逗号分隔；支持 bl、lb、dynam
   -d, --dataset-path P 数据集 JSONL 路径
       --drain-seconds N Benchmark 完成后停止 Decoder 前的 drain 秒数，默认 30
@@ -45,10 +47,10 @@ usage() {
 
 示例:
   ./automatic_benchmark.sh 5
-  ./automatic_benchmark.sh 10 bl,lb Dataset-20260717-0930.jsonl
-  ./automatic_benchmark.sh --rounds 3 --modes bl,dynam --dataset-path Dataset-20260717-0930.jsonl
+  ./automatic_benchmark.sh 10 bl,lb Dataset-20260717-0930.jsonl 2000
+  ./automatic_benchmark.sh --rounds 3 --num-prompts 2000 --modes bl,dynam --dataset-path Dataset-20260717-0930.jsonl
 
-也可以通过环境变量 NUM_ROUNDS、TEST_MODES、DATASET_PATH、BENCHMARK_TZ、
+也可以通过环境变量 NUM_ROUNDS、NUM_PROMPTS、TEST_MODES、DATASET_PATH、BENCHMARK_TZ、
 INTERNAL_NO_PROXY_HOSTS 和 DECODER_DRAIN_DELAY 配置。
 EOF
 }
@@ -62,6 +64,14 @@ while [ "$#" -gt 0 ]; do
                 exit 2
             }
             NUM_ROUNDS=$2
+            shift 2
+            ;;
+        -p|--num-prompts)
+            [ "$#" -ge 2 ] || {
+                echo "❌ $1 缺少参数" >&2
+                exit 2
+            }
+            NUM_PROMPTS=$2
             shift 2
             ;;
         -m|--modes)
@@ -108,6 +118,8 @@ while [ "$#" -gt 0 ]; do
                 TEST_MODES=$1
             elif [ "$POSITIONAL_INDEX" -eq 2 ]; then
                 DATASET_PATH=$1
+            elif [ "$POSITIONAL_INDEX" -eq 3 ]; then
+                NUM_PROMPTS=$1
             else
                 echo "❌ 多余参数: $1" >&2
                 usage >&2
@@ -121,6 +133,11 @@ done
 
 if ! [[ "$NUM_ROUNDS" =~ ^[1-9][0-9]*$ ]]; then
     echo "❌ 轮数必须是正整数，当前值: $NUM_ROUNDS" >&2
+    exit 2
+fi
+
+if ! [[ "$NUM_PROMPTS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "❌ 每轮 request 数必须是正整数，当前值: $NUM_PROMPTS" >&2
     exit 2
 fi
 
@@ -379,7 +396,7 @@ render_dashboard() {
     printf '\0337\033[1;1H'
     dashboard_line "🚀 全自动化流水线测试：${modes_text}"
     dashboard_line "📄 当前数据集: ${DATASET_PATH}"
-    dashboard_line "📂 每种模式 ${NUM_ROUNDS} 轮 | 日志目录: ${LOG_DIR} | 启动时间: $(format_epoch "$SCRIPT_START_EPOCH")"
+    dashboard_line "📂 每种模式 ${NUM_ROUNDS} 轮 | 每轮 ${NUM_PROMPTS} requests | 日志目录: ${LOG_DIR} | 启动时间: $(format_epoch "$SCRIPT_START_EPOCH")"
 
     for mode in "${MODES[@]}"; do
         completed=$(get_mode_progress "$mode")
@@ -425,7 +442,7 @@ init_dashboard() {
 
     echo "🚀 全自动化流水线测试：$(modes_display)"
     echo "📄 当前数据集: ${DATASET_PATH}"
-    echo "📂 每种模式 ${NUM_ROUNDS} 轮 | 日志目录: ${LOG_DIR} | 启动时间: $(format_epoch "$SCRIPT_START_EPOCH")"
+    echo "📂 每种模式 ${NUM_ROUNDS} 轮 | 每轮 ${NUM_PROMPTS} requests | 日志目录: ${LOG_DIR} | 启动时间: $(format_epoch "$SCRIPT_START_EPOCH")"
 }
 
 stop_dashboard() {
@@ -542,9 +559,10 @@ run_benchmark_mode() {
 
     set_mode_status "$mode" "Benchmark 启动中"
     render_dashboard
-    log_event "🚀 开始运行 $(mode_label "$mode") Benchmark，共 ${NUM_ROUNDS} 轮。"
+    log_event "🚀 开始运行 $(mode_label "$mode") Benchmark，共 ${NUM_ROUNDS} 轮，每轮 ${NUM_PROMPTS} 个请求。"
 
     DATASET_PATH="$DATASET_PATH" \
+        NUM_PROMPTS="$NUM_PROMPTS" \
         BENCHMARK_PROGRESS_FILE="$progress_file" \
         bash "$BENCHMARK_SCRIPT" "$mode" "$NUM_ROUNDS" \
         > "$result_file" 2>&1 &
