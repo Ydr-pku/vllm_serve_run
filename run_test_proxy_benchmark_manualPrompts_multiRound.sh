@@ -3,6 +3,9 @@
 MODE="${MODE:-${NOTE:-}}"
 NUM_ROUNDS="${NUM_ROUNDS:-1}"
 NUM_PROMPTS="${NUM_PROMPTS:-1000}"
+MAX_CONCURRENCY="${MAX_CONCURRENCY:-128}"
+REQUEST_RATE="${REQUEST_RATE:-400}"
+DISABLE_SHUFFLE="${DISABLE_SHUFFLE:-false}"
 DATASET_PATH="${DATASET_PATH:-./mixed_prompts_lognormal.jsonl}"
 BENCHMARK_TZ="${BENCHMARK_TZ:-UTC-8}"
 PROGRESS_FILE=${BENCHMARK_PROGRESS_FILE:-}
@@ -15,17 +18,21 @@ usage() {
 用法:
   ./run_test_proxy_benchmark_manualPrompts_multiRound.sh [模式] [轮数] [数据集路径] [每轮请求数]
   ./run_test_proxy_benchmark_manualPrompts_multiRound.sh --mode bl --rounds 10 --num-prompts 1000 --dataset-path Dataset-20260717-0930.jsonl
+  ./run_test_proxy_benchmark_manualPrompts_multiRound.sh --mode bl --rounds 2 --num-prompts 100 --dataset-path Dataset-20260717-0930.jsonl --max-concurrency 1 --request-rate 1 --disable-shuffle
 
 选项:
-  -m, --mode MODE        测试模式；支持 bl、lb、dynam
-  -n, --rounds N         运行轮数，默认 1
-  -p, --num-prompts N    每轮 benchmark 的 request 数，默认 1000
-  -d, --dataset-path P   数据集 JSONL 路径
-  -h, --help             显示帮助
+  -m, --mode MODE           测试模式；支持 bl、lb、dynam
+  -n, --rounds N            运行轮数，默认 1
+  -p, --num-prompts N       每轮 benchmark 的 request 数，默认 1000
+  -d, --dataset-path P      数据集 JSONL 路径
+      --max-concurrency N   最大并发请求数，默认 128
+      --request-rate RATE   每秒请求数，默认 400；也支持 inf
+      --disable-shuffle     禁止 benchmark 打乱数据集
+  -h, --help                显示帮助
 
 结果默认保存在脚本目录下的 results 文件夹。
-也可以通过 MODE、NUM_ROUNDS、NUM_PROMPTS、DATASET_PATH、RESULT_DIR 和
-BENCHMARK_TZ 环境变量配置。
+也可以通过 MODE、NUM_ROUNDS、NUM_PROMPTS、MAX_CONCURRENCY、REQUEST_RATE、
+DISABLE_SHUFFLE、DATASET_PATH、RESULT_DIR 和 BENCHMARK_TZ 环境变量配置。
 EOF
 }
 
@@ -51,6 +58,20 @@ while [ "$#" -gt 0 ]; do
             [ "$#" -ge 2 ] || { echo "❌ $1 缺少参数" >&2; exit 2; }
             DATASET_PATH=$2
             shift 2
+            ;;
+        --max-concurrency)
+            [ "$#" -ge 2 ] || { echo "❌ $1 缺少参数" >&2; exit 2; }
+            MAX_CONCURRENCY=$2
+            shift 2
+            ;;
+        --request-rate)
+            [ "$#" -ge 2 ] || { echo "❌ $1 缺少参数" >&2; exit 2; }
+            REQUEST_RATE=$2
+            shift 2
+            ;;
+        --disable-shuffle)
+            DISABLE_SHUFFLE=true
+            shift
             ;;
         -h|--help)
             usage
@@ -103,6 +124,25 @@ if ! [[ "$NUM_PROMPTS" =~ ^[1-9][0-9]*$ ]]; then
     exit 2
 fi
 
+if ! [[ "$MAX_CONCURRENCY" =~ ^[1-9][0-9]*$ ]]; then
+    echo "❌ 最大并发请求数必须是正整数，当前值: $MAX_CONCURRENCY" >&2
+    exit 2
+fi
+
+if ! [[ "$REQUEST_RATE" =~ ^([1-9][0-9]*([.][0-9]+)?|0[.][0-9]*[1-9][0-9]*|inf)$ ]]; then
+    echo "❌ request rate 必须是正数或 inf，当前值: $REQUEST_RATE" >&2
+    exit 2
+fi
+
+case "$DISABLE_SHUFFLE" in
+    true|false)
+        ;;
+    *)
+        echo "❌ DISABLE_SHUFFLE 必须是 true 或 false，当前值: $DISABLE_SHUFFLE" >&2
+        exit 2
+        ;;
+esac
+
 if [ ! -f "$DATASET_PATH" ]; then
     echo "❌ 数据集文件不存在: $DATASET_PATH" >&2
     exit 2
@@ -133,7 +173,15 @@ echo "🚀 计划连续执行 ${NUM_ROUNDS} 轮压测..."
 echo "📄 数据集: ${DATASET_PATH}"
 echo "🧪 测试模式: ${MODE}"
 echo "📦 每轮请求数: ${NUM_PROMPTS}"
+echo "🔀 最大并发数: ${MAX_CONCURRENCY}"
+echo "⏱️  Request rate: ${REQUEST_RATE}"
+echo "🧷 禁止数据集打乱: ${DISABLE_SHUFFLE}"
 echo "💾 结果目录: ${RESULT_DIR}"
+
+SHUFFLE_ARGS=()
+if [ "$DISABLE_SHUFFLE" = "true" ]; then
+    SHUFFLE_ARGS+=(--disable-shuffle)
+fi
 
 # 外层循环控制多轮执行
 for (( i=1; i<=NUM_ROUNDS; i++ )); do
@@ -158,8 +206,9 @@ for (( i=1; i<=NUM_ROUNDS; i++ )); do
         --endpoint /v1/chat/completions \
         --dataset-name custom \
         --dataset-path "$DATASET_PATH" \
+        "${SHUFFLE_ARGS[@]}" \
         --custom-output-len -1 \
-        --max-concurrency 128 \
+        --max-concurrency "$MAX_CONCURRENCY" \
         --num-prompts "$NUM_PROMPTS" \
         --model qwen3_30B \
         --tokenizer /home/y00906461/models/Qwen3-30B-A3B-Instruct-2507 \
@@ -169,7 +218,7 @@ for (( i=1; i<=NUM_ROUNDS; i++ )); do
         --result-filename "$RESULT_FILENAME" \
         --temperature 0.0 \
         --metric-percentiles "50,90,99" \
-        --request-rate 400
+        --request-rate "$REQUEST_RATE"
     ROUND_STATUS=$?
     ROUND_END_EPOCH=$(date +%s)
     ROUND_DURATION=$((ROUND_END_EPOCH - ROUND_START_EPOCH))

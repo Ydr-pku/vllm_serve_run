@@ -12,6 +12,9 @@ BENCHMARK_SCRIPT="${BENCHMARK_SCRIPT:-./run_test_proxy_benchmark_manualPrompts_m
 
 NUM_ROUNDS="${NUM_ROUNDS:-10}"
 NUM_PROMPTS="${NUM_PROMPTS:-1000}"
+MAX_CONCURRENCY="${MAX_CONCURRENCY:-128}"
+REQUEST_RATE="${REQUEST_RATE:-400}"
+DISABLE_SHUFFLE="${DISABLE_SHUFFLE:-false}"
 TEST_MODES="${TEST_MODES:-bl,lb,dynam}"
 DATASET_PATH="${DATASET_PATH:-./mixed_prompts_lognormal.jsonl}"
 BENCHMARK_TZ="${BENCHMARK_TZ:-UTC-8}"
@@ -36,22 +39,27 @@ usage() {
 用法:
   ./automatic_benchmark.sh [轮数] [模式列表] [数据集路径] [每轮请求数]
   ./automatic_benchmark.sh --rounds 10 --num-prompts 1000 --modes bl,lb,dynam --dataset-path Dataset-20260717-0930.jsonl
+  ./automatic_benchmark.sh --rounds 2 --num-prompts 100 --modes bl --dataset-path Dataset-20260717-0930.jsonl --max-concurrency 1 --request-rate 1 --disable-shuffle
 
 选项:
-  -n, --rounds N       每种模式执行的 benchmark 轮数，默认 10
-  -p, --num-prompts N  每轮 benchmark 的 request 数，默认 1000
-  -m, --modes LIST     要测试的模式，逗号分隔；支持 bl、lb、dynam
-  -d, --dataset-path P 数据集 JSONL 路径
-      --drain-seconds N Benchmark 完成后停止 Decoder 前的 drain 秒数，默认 30
-  -h, --help           显示帮助
+  -n, --rounds N          每种模式执行的 benchmark 轮数，默认 10
+  -p, --num-prompts N     每轮 benchmark 的 request 数，默认 1000
+  -m, --modes LIST        要测试的模式，逗号分隔；支持 bl、lb、dynam
+  -d, --dataset-path P    数据集 JSONL 路径
+      --max-concurrency N 最大并发请求数，默认 128
+      --request-rate RATE 每秒请求数，默认 400；也支持 inf
+      --disable-shuffle   禁止 benchmark 打乱数据集
+      --drain-seconds N   Benchmark 完成后停止 Decoder 前的 drain 秒数，默认 30
+  -h, --help              显示帮助
 
 示例:
   ./automatic_benchmark.sh 5
   ./automatic_benchmark.sh 10 bl,lb Dataset-20260717-0930.jsonl 2000
   ./automatic_benchmark.sh --rounds 3 --num-prompts 2000 --modes bl,dynam --dataset-path Dataset-20260717-0930.jsonl
 
-也可以通过环境变量 NUM_ROUNDS、NUM_PROMPTS、TEST_MODES、DATASET_PATH、BENCHMARK_TZ、
-INTERNAL_NO_PROXY_HOSTS 和 DECODER_DRAIN_DELAY 配置。
+也可以通过环境变量 NUM_ROUNDS、NUM_PROMPTS、MAX_CONCURRENCY、REQUEST_RATE、
+DISABLE_SHUFFLE、TEST_MODES、DATASET_PATH、BENCHMARK_TZ、INTERNAL_NO_PROXY_HOSTS
+和 DECODER_DRAIN_DELAY 配置。
 EOF
 }
 
@@ -89,6 +97,26 @@ while [ "$#" -gt 0 ]; do
             }
             DATASET_PATH=$2
             shift 2
+            ;;
+        --max-concurrency)
+            [ "$#" -ge 2 ] || {
+                echo "❌ $1 缺少参数" >&2
+                exit 2
+            }
+            MAX_CONCURRENCY=$2
+            shift 2
+            ;;
+        --request-rate)
+            [ "$#" -ge 2 ] || {
+                echo "❌ $1 缺少参数" >&2
+                exit 2
+            }
+            REQUEST_RATE=$2
+            shift 2
+            ;;
+        --disable-shuffle)
+            DISABLE_SHUFFLE=true
+            shift
             ;;
         --drain-seconds)
             [ "$#" -ge 2 ] || {
@@ -140,6 +168,25 @@ if ! [[ "$NUM_PROMPTS" =~ ^[1-9][0-9]*$ ]]; then
     echo "❌ 每轮 request 数必须是正整数，当前值: $NUM_PROMPTS" >&2
     exit 2
 fi
+
+if ! [[ "$MAX_CONCURRENCY" =~ ^[1-9][0-9]*$ ]]; then
+    echo "❌ 最大并发请求数必须是正整数，当前值: $MAX_CONCURRENCY" >&2
+    exit 2
+fi
+
+if ! [[ "$REQUEST_RATE" =~ ^([1-9][0-9]*([.][0-9]+)?|0[.][0-9]*[1-9][0-9]*|inf)$ ]]; then
+    echo "❌ request rate 必须是正数或 inf，当前值: $REQUEST_RATE" >&2
+    exit 2
+fi
+
+case "$DISABLE_SHUFFLE" in
+    true|false)
+        ;;
+    *)
+        echo "❌ DISABLE_SHUFFLE 必须是 true 或 false，当前值: $DISABLE_SHUFFLE" >&2
+        exit 2
+        ;;
+esac
 
 if ! [[ "$DECODER_DRAIN_DELAY" =~ ^[0-9]+$ ]]; then
     echo "❌ Decoder drain 秒数必须是非负整数，当前值: $DECODER_DRAIN_DELAY" >&2
@@ -559,16 +606,21 @@ run_benchmark_mode() {
 
     set_mode_status "$mode" "Benchmark 启动中"
     render_dashboard
-    log_event "🚀 开始运行 $(mode_label "$mode") Benchmark，共 ${NUM_ROUNDS} 轮，每轮 ${NUM_PROMPTS} 个请求。"
+    log_event "🚀 开始运行 $(mode_label "$mode") Benchmark，共 ${NUM_ROUNDS} 轮，每轮 ${NUM_PROMPTS} 个请求，并发 ${MAX_CONCURRENCY}，request rate ${REQUEST_RATE}，disable shuffle ${DISABLE_SHUFFLE}。"
 
     DATASET_PATH="$DATASET_PATH" \
         MODE="$mode" \
         NUM_PROMPTS="$NUM_PROMPTS" \
+        MAX_CONCURRENCY="$MAX_CONCURRENCY" \
+        REQUEST_RATE="$REQUEST_RATE" \
+        DISABLE_SHUFFLE="$DISABLE_SHUFFLE" \
         BENCHMARK_PROGRESS_FILE="$progress_file" \
         bash "$BENCHMARK_SCRIPT" \
             --mode "$mode" \
             --rounds "$NUM_ROUNDS" \
             --num-prompts "$NUM_PROMPTS" \
+            --max-concurrency "$MAX_CONCURRENCY" \
+            --request-rate "$REQUEST_RATE" \
             --dataset-path "$DATASET_PATH" \
         > "$result_file" 2>&1 &
     BENCHMARK_PID=$!
