@@ -4,3 +4,4 @@ __pycache__/
 visualization/
 *.json
 index*
+*.jsonl
