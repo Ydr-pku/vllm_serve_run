@@ -562,9 +562,14 @@ run_benchmark_mode() {
     log_event "🚀 开始运行 $(mode_label "$mode") Benchmark，共 ${NUM_ROUNDS} 轮，每轮 ${NUM_PROMPTS} 个请求。"
 
     DATASET_PATH="$DATASET_PATH" \
+        MODE="$mode" \
         NUM_PROMPTS="$NUM_PROMPTS" \
         BENCHMARK_PROGRESS_FILE="$progress_file" \
-        bash "$BENCHMARK_SCRIPT" "$mode" "$NUM_ROUNDS" \
+        bash "$BENCHMARK_SCRIPT" \
+            --mode "$mode" \
+            --rounds "$NUM_ROUNDS" \
+            --num-prompts "$NUM_PROMPTS" \
+            --dataset-path "$DATASET_PATH" \
         > "$result_file" 2>&1 &
     BENCHMARK_PID=$!
 

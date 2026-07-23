@@ -1,36 +1,40 @@
 #!/bin/bash
 
-NOTE="${NOTE:-}"
+MODE="${MODE:-${NOTE:-}}"
 NUM_ROUNDS="${NUM_ROUNDS:-1}"
 NUM_PROMPTS="${NUM_PROMPTS:-1000}"
 DATASET_PATH="${DATASET_PATH:-./mixed_prompts_lognormal.jsonl}"
 BENCHMARK_TZ="${BENCHMARK_TZ:-UTC-8}"
 PROGRESS_FILE=${BENCHMARK_PROGRESS_FILE:-}
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+RESULT_DIR="${RESULT_DIR:-${SCRIPT_DIR}/results}"
 export TZ="$BENCHMARK_TZ"
 
 usage() {
     cat <<'EOF'
 用法:
-  ./run_test_proxy_benchmark_manualPrompts_multiRound.sh [note] [轮数] [数据集路径] [每轮请求数]
-  ./run_test_proxy_benchmark_manualPrompts_multiRound.sh --note bl --rounds 10 --num-prompts 1000 --dataset-path Dataset-20260717-0930.jsonl
+  ./run_test_proxy_benchmark_manualPrompts_multiRound.sh [模式] [轮数] [数据集路径] [每轮请求数]
+  ./run_test_proxy_benchmark_manualPrompts_multiRound.sh --mode bl --rounds 10 --num-prompts 1000 --dataset-path Dataset-20260717-0930.jsonl
 
 选项:
-  --note NOTE            写入结果标识的 note
+  -m, --mode MODE        测试模式；支持 bl、lb、dynam
   -n, --rounds N         运行轮数，默认 1
   -p, --num-prompts N    每轮 benchmark 的 request 数，默认 1000
   -d, --dataset-path P   数据集 JSONL 路径
   -h, --help             显示帮助
 
-也可以通过 NOTE、NUM_ROUNDS、NUM_PROMPTS、DATASET_PATH 和 BENCHMARK_TZ 环境变量配置。
+结果默认保存在脚本目录下的 results 文件夹。
+也可以通过 MODE、NUM_ROUNDS、NUM_PROMPTS、DATASET_PATH、RESULT_DIR 和
+BENCHMARK_TZ 环境变量配置。
 EOF
 }
 
 POSITIONAL_INDEX=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --note)
+        -m|--mode|--note)
             [ "$#" -ge 2 ] || { echo "❌ $1 缺少参数" >&2; exit 2; }
-            NOTE=$2
+            MODE=$2
             shift 2
             ;;
         -n|--rounds)
@@ -63,7 +67,7 @@ while [ "$#" -gt 0 ]; do
             ;;
         *)
             case "$POSITIONAL_INDEX" in
-                0) NOTE=$1 ;;
+                0) MODE=$1 ;;
                 1) NUM_ROUNDS=$1 ;;
                 2) DATASET_PATH=$1 ;;
                 3) NUM_PROMPTS=$1 ;;
@@ -78,6 +82,16 @@ while [ "$#" -gt 0 ]; do
             ;;
     esac
 done
+
+MODE=$(printf '%s' "$MODE" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+case "$MODE" in
+    bl|lb|dynam)
+        ;;
+    *)
+        echo "❌ 测试模式必须是 bl、lb 或 dynam，当前值: ${MODE:-<空>}" >&2
+        exit 2
+        ;;
+esac
 
 if ! [[ "$NUM_ROUNDS" =~ ^[1-9][0-9]*$ ]]; then
     echo "❌ 运行轮数必须是正整数，当前值: $NUM_ROUNDS" >&2
@@ -97,7 +111,7 @@ fi
 emit_progress() {
     [ -n "$PROGRESS_FILE" ] || return
     printf '%s|%s|%s|%s|%s|%s\n' \
-        "$1" "$NOTE" "$2" "$NUM_ROUNDS" "${3:-0}" "${4:-0}" \
+        "$1" "$MODE" "$2" "$NUM_ROUNDS" "${3:-0}" "${4:-0}" \
         >> "$PROGRESS_FILE"
 }
 
@@ -111,10 +125,15 @@ export NO_PROXY=$NO_PROXY,61.28.30.29
 
 LOG_DIR="./log"
 mkdir -p "${LOG_DIR}"
+mkdir -p "${RESULT_DIR}"
+DATASET_FILENAME="${DATASET_PATH##*/}"
+DATASET_NAME="${DATASET_FILENAME%.*}"
 
 echo "🚀 计划连续执行 ${NUM_ROUNDS} 轮压测..."
 echo "📄 数据集: ${DATASET_PATH}"
+echo "🧪 测试模式: ${MODE}"
 echo "📦 每轮请求数: ${NUM_PROMPTS}"
+echo "💾 结果目录: ${RESULT_DIR}"
 
 # 外层循环控制多轮执行
 for (( i=1; i<=NUM_ROUNDS; i++ )); do
@@ -125,11 +144,8 @@ for (( i=1; i<=NUM_ROUNDS; i++ )); do
     TIMESTAMP=$(date +"%Y%m%d_%H%M")
 
     # 4. 定义【压测客户端】专属的日志文件名（加入 round 轮次标识）
-    if [ -z "$NOTE" ]; then
-        BENCH_LOG="${LOG_DIR}/${TIMESTAMP}_vllm_bench_result_round${i}.log"
-    else
-        BENCH_LOG="${LOG_DIR}/${TIMESTAMP}_vllm_bench_result_${NOTE}_round${i}.log"
-    fi
+    BENCH_LOG="${LOG_DIR}/${TIMESTAMP}_vllm_bench_result_${MODE}_round${i}.log"
+    RESULT_FILENAME="${TIMESTAMP}_${DATASET_NAME}_${MODE}_round${i}.json"
 
     echo "----------------------------------------------------"
     echo "${TIMESTAMP} ▶️ 开始第 ${i}/${NUM_ROUNDS} 轮压测"
@@ -149,6 +165,8 @@ for (( i=1; i<=NUM_ROUNDS; i++ )); do
         --tokenizer /home/y00906461/models/Qwen3-30B-A3B-Instruct-2507 \
         --save-result \
         --save-detailed \
+        --result-dir "$RESULT_DIR" \
+        --result-filename "$RESULT_FILENAME" \
         --temperature 0.0 \
         --metric-percentiles "50,90,99" \
         --request-rate 400
