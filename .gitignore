@@ -2,3 +2,5 @@ log/
 *.log
 __pycache__/
 visualization/
+*.json
+index*
