@@ -52,9 +52,7 @@ vllm serve /home/y00906461/models/Qwen3-30B-A3B-Instruct-2507  \
       "mode": "static",
       "start_step": 0,
       "end_step": -1,
-      "bubble_threshold": 5.0,
-      "long_req_block_threshold": 700,
-      "dynamic_max_step": 256
+      "bubble_threshold": 5.0
     }
   }
   }' \
